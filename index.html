@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soil Moisture Dashboard</title>
+
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Bootstrap -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+  <!-- PapaParse -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <style>
+    :root {
+      --accent: #2563eb;
+      --accent-soft: #eff3ff;
+      --border-soft: #e5e7eb;
+      --bg-main: #f4f5f7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg-main);
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Top bar */
+    .navbar {
+      border-bottom: 1px solid rgba(0,0,0,0.04);
+      background: #ffffff;
+    }
+
+    .navbar-brand {
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #111827 !important;
+    }
+
+    .navbar-subtitle {
+      font-size: 0.8rem;
+      color: #6b7280;
+    }
+
+    /* Layout */
+    .layout {
+      max-width: 1280px;
+      margin: 20px auto 32px;
+      padding: 0 12px;
+    }
+
+    .card-shell {
+      background: #ffffff;
+      border-radius: 14px;
+      border: 1px solid var(--border-soft);
+      box-shadow:
+        0 10px 30px rgba(15, 23, 42, 0.04),
+        0 1px 2px rgba(15, 23, 42, 0.06);
+    }
+
+    .card-header-custom {
+      padding: 10px 14px;
+      border-bottom: 1px solid #edf0f3;
+      border-radius: 14px 14px 0 0;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .card-title-main {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    .card-subtitle-main {
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+
+    .badge-soft {
+      font-size: 0.7rem;
+      background: var(--accent-soft);
+      color: #1d4ed8;
+      border-radius: 999px;
+      padding: 3px 10px;
+      border: 1px solid #dbe4ff;
+      white-space: nowrap;
+    }
+
+    .card-body-custom {
+      padding: 12px 14px 14px;
+    }
+
+    .label-small {
+      font-size: 0.76rem;
+      font-weight: 500;
+      color: #4b5563;
+      margin-bottom: 3px;
+    }
+
+    .section-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #9ca3af;
+      margin-bottom: 4px;
+    }
+
+    .form-control,
+    .form-select {
+      font-size: 0.8rem;
+      padding: 4px 8px;
+      border-radius: 8px;
+      border-color: #d1d5db;
+    }
+
+    .form-control:focus,
+    .form-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15);
+    }
+
+    .btn-main {
+      background: var(--accent);
+      color: #ffffff;
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      border: none;
+    }
+
+    .btn-main:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-soft {
+      border-radius: 999px;
+      font-size: 0.78rem;
+      padding: 6px 14px;
+    }
+
+    /* Preview table */
+    #previewTable {
+      max-height: 300px;
+      overflow-y: auto;
+      overflow-x: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    #previewTable table {
+      border-collapse: collapse;
+      width: max-content;
+      font-size: 0.74rem;
+    }
+
+    #previewTable th,
+    #previewTable td {
+      padding: 3px 6px;
+      white-space: nowrap;
+      line-height: 1.2;
+      vertical-align: top;
+      border-bottom: 1px solid #f1f3f5;
+    }
+
+    #previewTable thead th {
+      position: sticky;
+      top: 0;
+      background: #f9fafb;
+      z-index: 2;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    canvas {
+      height: 460px !important;
+    }
+
+    @media (max-width: 991.98px) {
+      .layout {
+        margin-top: 12px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- TOP BAR -->
+  <nav class="navbar">
+    <div class="container-fluid">
+      <span class="navbar-brand">Soil Moisture Dashboard</span>
+      <span class="navbar-subtitle d-none d-md-inline">
+        Soil moisture data - Al-Khanasri restoration site
+      </span>
+    </div>
+  </nav>
+
+  <!-- MAIN LAYOUT -->
+  <div class="layout">
+    <div class="row g-3">
+
+      <!-- SIDEBAR -->
+      <div class="col-lg-3">
+        <div class="card-shell">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Control Panel</div>
+              <div class="card-subtitle-main">Upload & filter data</div>
+            </div>
+          </div>
+          <div class="card-body-custom">
+
+            <!-- Data source -->
+            <div class="mb-3">
+              <div class="section-label">Data</div>
+              <label for="fileInput" class="label-small">Upload soil moisture data CSV file</label>
+              <input
+                type="file"
+                id="fileInput"
+                class="form-control form-control-sm"
+                accept=".csv,.txt"
+              />
+              <button class="btn-main w-100 mt-2" onclick="loadData()">
+                Load data
+              </button>
+            </div>
+
+            <!-- Time span -->
+            <div class="mb-3">
+              <div class="section-label">Time span</div>
+              <label for="startDate" class="label-small">From</label>
+              <input
+                type="datetime-local"
+                id="startDate"
+                class="form-control form-control-sm"
+              />
+              <label for="endDate" class="label-small mt-2">To</label>
+              <input
+                type="datetime-local"
+                id="endDate"
+                class="form-control form-control-sm"
+              />
+            </div>
+
+            <!-- Parameter -->
+            <div class="mb-3">
+              <div class="section-label">Variable</div>
+              <label for="paramSelect" class="label-small">Select parameter</label>
+              <select
+                id="paramSelect"
+                class="form-select form-select-sm"
+              >
+                <option value="wc">Water content</option>
+                <option value="temp">Temperature</option>
+                <option value="perm">Permittivity</option>
+                <option value="bulkEC">Bulk EC</option>
+                <option value="poreEC">Pore EC</option>
+              </select>
+            </div>
+
+            <!-- Sensors -->
+            <div class="mb-3">
+              <div class="section-label">Sensors</div>
+              <label class="label-small">Select one or more sensors</label>
+              <select
+                id="sensorSelect"
+                class="form-select form-select-sm"
+                multiple
+                size="8"
+              ></select>
+              <div class="card-subtitle-main mt-1">
+                Hold Ctrl / Cmd to select multiple.
+              </div>
+            </div>
+
+            <!-- Interval -->
+            <div class="mb-3">
+              <div class="section-label">Aggregation</div>
+              <label for="intervalSelect" class="label-small">Interval</label>
+              <select
+                id="intervalSelect"
+                class="form-select form-select-sm"
+              >
+                <option value="30min">30 min (raw)</option>
+                <option value="hourly">Hourly</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+
+            <!-- Actions -->
+            <div class="d-grid gap-2 mt-2">
+              <button class="btn-main" onclick="updatePlot()">Plot</button>
+              <button
+                class="btn-soft btn-outline-secondary"
+                onclick="downloadPlot()"
+              >
+                Download plot
+              </button>
+              <button
+                class="btn-soft btn-outline-secondary"
+                onclick="downloadFilteredData()"
+              >
+                Download data
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT SIDE -->
+      <div class="col-lg-9">
+
+        <!-- DATA PREVIEW -->
+        <div class="card-shell mb-3">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Data Preview</div>
+              <div class="card-subtitle-main">First 100 rows of the curated file</div>
+            </div>
+            <span class="badge-soft">Table</span>
+          </div>
+          <div class="card-body-custom" id="previewTable"></div>
+        </div>
+
+        <!-- PLOT -->
+        <div class="card-shell">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Time Series Plot</div>
+              <div class="card-subtitle-main">30-minute soil sensor data</div>
+            </div>
+            <span class="badge-soft">Interactive</span>
+          </div>
+          <div class="card-body-custom">
+            <canvas id="mainChart"></canvas>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- JS -->
+  <script src="app.js"></script>
+
+</body>
+</html>
