@@ -1,8 +1,8 @@
-let dataRows = [], sensorIdToPrefix = {}, mainChart;
+let dataRows = [];
+let sensorIdToPrefix = {};
+let mainChart;
 
-// --- FIRST TIMESTAMP: adjust if needed ---
-const FIRST_TIMESTAMP = new Date(2023, 1, 21, 20, 30); // 2023-02-21 20:30 (month index 1 = February)
-
+// Map raw Acclima IDs (from *_sensor columns) to human-readable labels
 const sensorIdToLabel = {
   "014Acclima TR315L2.2908543": "Downhill Pit 1 (10 cm)",
   "114Acclima TR315L2.2908577": "Downhill Pit 1 (30 cm)",
@@ -42,9 +42,14 @@ const sensorIdToLabel = {
   "814Acclima TR315L2.2908552": "Untreated 3 (100 cm)"
 };
 
+// ---------------------- LOADING ----------------------------------------
+
 function loadData() {
   const file = document.getElementById('fileInput').files[0];
-  if (!file) return alert('Please upload a file.');
+  if (!file) {
+    alert('Please upload a file.');
+    return;
+  }
 
   Papa.parse(file, {
     header: true,
@@ -58,11 +63,8 @@ function loadData() {
         return;
       }
 
-      // Build map from raw sensor ID -> prefix in column names
+      // Build map from raw sensor ID -> prefix in column names (e.g. DH1_10)
       buildSensorPrefixMap(dataRows[0]);
-
-      // Build synthetic 30-min timestamps: FIRST_TIMESTAMP + index * 30 min
-      buildSyntheticTimestamps();
 
       drawTablePreview();
       initFilters();
@@ -70,25 +72,19 @@ function loadData() {
   });
 }
 
+// Map raw sensor IDs (from *_sensor cols) to prefixes (DH1_10, UT2_30, etc.)
 function buildSensorPrefixMap(row) {
   sensorIdToPrefix = {};
   for (let col of Object.keys(row)) {
     if (col.endsWith('_sensor')) {
-      const raw = row[col];          // e.g. "014Acclima TR..."
+      const raw = row[col];                 // e.g. "014Acclima TR..."
       const prefix = col.replace('_sensor', ''); // e.g. "DH1_10"
       if (raw) sensorIdToPrefix[raw] = prefix;
     }
   }
 }
 
-// Create _dt for each row: a proper Date object at 30-min resolution
-function buildSyntheticTimestamps() {
-  let current = new Date(FIRST_TIMESTAMP);
-  for (const row of dataRows) {
-    row._dt = new Date(current); // store a copy
-    current = new Date(current.getTime() + 30 * 60 * 1000); // +30 min
-  }
-}
+// ---------------------- PREVIEW TABLE ----------------------------------
 
 function drawTablePreview() {
   const preview = document.getElementById('previewTable');
@@ -103,27 +99,59 @@ function drawTablePreview() {
   const keys = Object.keys(dataRows[0] || {});
   thead.innerHTML = '<tr>' + keys.map(k => `<th>${k}</th>`).join('') + '</tr>';
 
-  for (let i = 0; i < Math.min(100, dataRows.length); i++) {
+  const max = Math.min(100, dataRows.length);
+  for (let i = 0; i < max; i++) {
     const r = dataRows[i];
-    const row = '<tr>' + keys.map(k => `<td>${r[k] ?? ''}</td>`).join('') + '</tr>';
-    tbody.insertAdjacentHTML('beforeend', row);
+    const rowHtml =
+      '<tr>' + keys.map(k => `<td>${r[k] ?? ''}</td>`).join('') + '</tr>';
+    tbody.insertAdjacentHTML('beforeend', rowHtml);
   }
 
   table.append(thead, tbody);
   preview.appendChild(table);
 }
 
-// Helper: always use synthetic _dt
+// ---------------------- TIME HANDLING ----------------------------------
+
+// Build a Date from 'date' + 'time' columns
+// date: 20230221 (YYYYMMDD)
+// time: "h00:30", "h01:00", ...
 function getRowDate(row) {
-  return row._dt instanceof Date ? row._dt : null;
+  let d = row.date;
+  let t = row.time;
+  if (d == null || t == null) return null;
+
+  // Date part
+  let s = String(Math.trunc(d)); // handle numeric
+  if (s.length !== 8) return null;
+  const year  = Number(s.slice(0, 4));
+  const month = Number(s.slice(4, 6));
+  const day   = Number(s.slice(6, 8));
+
+  // Time part
+  let ts = String(t).trim();
+  // Remove leading 'h' if present (e.g. "h00:30")
+  if (/^h/i.test(ts)) ts = ts.slice(1);
+  const [hhStr, mmStr] = ts.split(':');
+  const hour = Number(hhStr);
+  const min  = Number(mmStr);
+
+  if (
+    Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day) ||
+    Number.isNaN(hour) || Number.isNaN(min)
+  ) return null;
+
+  return new Date(year, month - 1, day, hour, min, 0, 0);
 }
 
-// For datetime-local input
+// For datetime-local input (YYYY-MM-DDTHH:MM)
 function toLocalInput(d) {
   const off = d.getTimezoneOffset();
   const local = new Date(d.getTime() - off * 60000);
   return local.toISOString().slice(0, 16);
 }
+
+// ---------------------- FILTER INIT ------------------------------------
 
 function initFilters() {
   const dates = dataRows.map(getRowDate).filter(Boolean);
@@ -140,11 +168,13 @@ function initFilters() {
 
   // Only include sensors that actually appear in this curated file
   Object.entries(sensorIdToLabel).forEach(([id, label]) => {
-    if (!sensorIdToPrefix[id]) return;
+    if (!sensorIdToPrefix[id]) return; // skip if no matching *_sensor col
     const opt = new Option(label, id);
     sel.appendChild(opt);
   });
 }
+
+// ---------------------- AGGREGATION ------------------------------------
 
 function aggregateData(points, interval) {
   const buckets = {};
@@ -153,14 +183,15 @@ function aggregateData(points, interval) {
     const d = new Date(x);
 
     if (interval === '30min') {
-      // keep native 30-min bins: _dt is already 0 or 30 min
-      d.setSeconds(0, 0);
+      // Snap to 0 or 30 minutes
+      const m = d.getMinutes();
+      d.setMinutes(m < 30 ? 0 : 30, 0, 0);
     } else if (interval === 'hourly') {
       d.setMinutes(0, 0, 0);
     } else if (interval === 'daily') {
       d.setHours(0, 0, 0, 0);
     } else if (interval === 'weekly') {
-      const day = d.getDay(); // 0=Sun
+      const day = d.getDay(); // 0 = Sunday
       const diff = (day === 0 ? -6 : 1) - day; // Monday as start
       d.setDate(d.getDate() + diff);
       d.setHours(0, 0, 0, 0);
@@ -180,6 +211,8 @@ function aggregateData(points, interval) {
     .sort((a, b) => a.x - b.x);
 }
 
+// ---------------------- PLOTTING ---------------------------------------
+
 function updatePlot() {
   if (!dataRows.length) {
     alert('Load data first.');
@@ -188,11 +221,12 @@ function updatePlot() {
 
   const start = new Date(document.getElementById('startDate').value);
   const end   = new Date(document.getElementById('endDate').value);
-  const param = document.getElementById('paramSelect').value;
+  const param = document.getElementById('paramSelect').value;    // wc, temp ...
   const interval = document.getElementById('intervalSelect').value;
+
   const sensors = Array.from(
     document.getElementById('sensorSelect').selectedOptions
-  ).map(o => o.value);
+  ).map(o => o.value); // raw IDs
 
   if (!sensors.length) {
     alert('Select at least one sensor.');
@@ -210,13 +244,14 @@ function updatePlot() {
 
     const pts = filtered.map(r => {
       const dt = getRowDate(r);
-      const val = r[`${prefix}_${param}`];
+      const val = r[`${prefix}_${param}`]; // e.g. "DH1_10_wc"
       return { x: dt, y: val };
     }).filter(p => p.x && p.y != null && !isNaN(p.y));
 
+    const data = aggregateData(pts, interval);
     return {
       label: sensorIdToLabel[id],
-      data: aggregateData(pts, interval),
+      data,
       fill: false
     };
   }).filter(Boolean);
@@ -240,12 +275,19 @@ function updatePlot() {
           time: { tooltipFormat: 'yyyy-MM-dd HH:mm' },
           title: { display: true, text: 'Date' }
         },
-        y: { title: { display: true, text: param.toUpperCase() } }
+        y: {
+          title: { display: true, text: param.toUpperCase() }
+        }
       },
-      plugins: { legend: { position: 'top' }, title: { display: false } }
+      plugins: {
+        legend: { position: 'top' },
+        title: { display: false }
+      }
     }
   });
 }
+
+// ---------------------- EXPORTS ----------------------------------------
 
 function downloadPlot() {
   if (!mainChart) {
@@ -267,9 +309,10 @@ function downloadFilteredData() {
   const start = new Date(document.getElementById('startDate').value);
   const end   = new Date(document.getElementById('endDate').value);
   const param = document.getElementById('paramSelect').value;
+
   const sensors = Array.from(
     document.getElementById('sensorSelect').selectedOptions
-  ).map(o => o.value);
+  ).map(o => o.value); // raw IDs
 
   if (!sensors.length) {
     alert('Select at least one sensor.');
@@ -297,8 +340,8 @@ function downloadFilteredData() {
 
   const csv = [header, ...rows].map(r => r.join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
   a.href = url;
   a.download = 'filtered_data.csv';
   a.click();
@@ -306,6 +349,7 @@ function downloadFilteredData() {
 }
 
 function formatDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ` +
-         `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const pad = n => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
