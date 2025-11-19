@@ -33,12 +33,9 @@ https://data.mel.cgiar.org/dataset.xhtml?persistentId=hdl:20.500.11766.1/FK2/7S3
 git clone https://github.com/<your-username>/soil-moisture-dashboard.git
 ```
 
-### **2. Run the dashboard**
+### **2. Run the dashboard **
 
-Just open:
-```bash
-index.html
-```
+Recommended to run using python
 
 ### **3. Upload curated data**
 - Click **Upload CSV**
@@ -53,6 +50,8 @@ Choose:
 - Interval  
 
 Then click **Plot**.
+<img width="1506" height="1041" alt="image" src="https://github.com/user-attachments/assets/529caad5-b18c-41e2-acac-053d5109c7c4" />
+
 
 ### **5. Export**
 - **Download Data** → CSV  
@@ -63,12 +62,17 @@ Then click **Plot**.
 
 ##  Repository Structure
 
-soil-moisture-dashboard/
-│
-├── index.html # Main dashboard interface
-├── app.js # Core logic: parsing, filtering, plotting
-├── SoilMoisture_Data.csv # Sample curated dataset
-└── README.md # Project documentation
+.
+├── index.html                 # Dashboard UI and layout
+└── src/                       # Modular JavaScript
+    ├── app.js                 # Entrypoint (exposes global functions)
+    ├── load.js                # Uploading, CSV parsing, preview table, filter initialization
+    ├── charts.js              # Chart.js plotting + aggregation logic
+    ├── exports.js             # PNG + CSV export functions
+    ├── parsing.js             # Date/time parsing utilities
+    ├── state.js               # Shared in-memory state (dataRows, chart instance)
+    └── constants.js           # Sensor ID → human-readable mapping
+
 
 
 ##  Research Context
