@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soil Moisture Dashboard – Advanced</title>
+
+  <!-- Google Font (same as main UI) -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Bootstrap -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
+
+  <!-- Chart.js + time adapter + PapaParse + zoom plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <style>
+    :root {
+      --accent: #2563eb;
+      --accent-soft: #eff3ff;
+      --border-soft: #e5e7eb;
+      --bg-main: #f4f5f7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg-main);
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Top bar (match main UI) */
+    .navbar {
+      border-bottom: 1px solid rgba(0,0,0,0.04);
+      background: #ffffff;
+    }
+
+    .navbar-brand {
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #111827 !important;
+    }
+
+    .navbar-subtitle {
+      font-size: 0.8rem;
+      color: #6b7280;
+    }
+
+    .navbar-right-link {
+      font-size: 0.8rem;
+    }
+
+    /* Layout */
+    .layout {
+      max-width: 1280px;
+      margin: 20px auto 32px;
+      padding: 0 12px;
+    }
+
+    .card-shell {
+      background: #ffffff;
+      border-radius: 14px;
+      border: 1px solid var(--border-soft);
+      box-shadow:
+        0 10px 30px rgba(15, 23, 42, 0.04),
+        0 1px 2px rgba(15, 23, 42, 0.06);
+    }
+
+    .card-header-custom {
+      padding: 10px 14px;
+      border-bottom: 1px solid #edf0f3;
+      border-radius: 14px 14px 0 0;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .card-title-main {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    .card-subtitle-main {
+      font-size: 0.78rem;
+      color: #6b7280;
+    }
+
+    .badge-soft {
+      font-size: 0.7rem;
+      background: var(--accent-soft);
+      color: #1d4ed8;
+      border-radius: 999px;
+      padding: 3px 10px;
+      border: 1px solid #dbe4ff;
+      white-space: nowrap;
+    }
+
+    .card-body-custom {
+      padding: 12px 14px 14px;
+    }
+
+    .section-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #9ca3af;
+      margin-bottom: 4px;
+    }
+
+    .label-small {
+      font-size: 0.76rem;
+      font-weight: 500;
+      color: #4b5563;
+      margin-bottom: 3px;
+    }
+
+    .form-control,
+    .form-select {
+      font-size: 0.8rem;
+      padding: 4px 8px;
+      border-radius: 8px;
+      border-color: #d1d5db;
+    }
+
+    .form-control:focus,
+    .form-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15);
+    }
+
+    .btn-main {
+      background: var(--accent);
+      color: #ffffff;
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      border: none;
+    }
+
+    .btn-main:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-soft {
+      border-radius: 999px;
+      font-size: 0.78rem;
+      padding: 6px 14px;
+    }
+
+    /* Preview table for master & weather */
+    .table-preview-shell {
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    .table-preview-shell table {
+      border-collapse: collapse;
+      width: max-content;
+      font-size: 0.74rem;
+    }
+
+    .table-preview-shell th,
+    .table-preview-shell td {
+      padding: 3px 6px;
+      white-space: nowrap;
+      line-height: 1.2;
+      vertical-align: top;
+      border-bottom: 1px solid #f1f3f5;
+    }
+
+    .table-preview-shell thead th {
+      position: sticky;
+      top: 0;
+      background: #f9fafb;
+      z-index: 2;
+      border-bottom: 2px solid #e5e7eb;
+    }
+
+    /* Chart containers */
+    .chart-container {
+      position: relative;
+      width: 100%;
+      height: 55vh; /* main charts */
+    }
+
+    .chart-container-small {
+      position: relative;
+      width: 100%;
+      height: 300px; /* rainfall timeline */
+    }
+
+    canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* Infiltration layout */
+    .infil-clusters {
+      display: flex;
+      justify-content: flex-start;
+      flex-wrap: nowrap;
+      gap: 1rem;
+    }
+
+    .cluster-box {
+      flex: 1 0 32%;      /* three boxes in first row */
+      position: relative;
+      height: 180px;
+    }
+
+    .cluster-box.small {
+      flex: 1 0 23%;      /* four boxes */
+      height: 160px;
+    }
+
+    .cluster-label {
+      text-align: center;
+      font-size: 0.8rem;
+      margin-top: 0.4rem;
+      color: #4b5563;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 991.98px) {
+      .layout {
+        margin-top: 12px;
+      }
+      .infil-clusters {
+        flex-wrap: wrap;
+      }
+      .cluster-box,
+      .cluster-box.small {
+        flex: 1 0 48%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- TOP BAR (match main UI) -->
+  <nav class="navbar">
+    <div class="container-fluid">
+      <div class="d-flex align-items-baseline gap-2">
+        <span class="navbar-brand">Soil Moisture Dashboard – Advanced</span>
+        <span class="navbar-subtitle d-none d-md-inline">
+          Hydrograph, rainfall events & infiltration analysis
+        </span>
+      </div>
+      <a href="../index.html" class="navbar-right-link text-decoration-none text-primary">
+        ← Back to main dashboard
+      </a>
+    </div>
+  </nav>
+
+  <!-- MAIN LAYOUT -->
+  <div class="layout">
+    <div class="row g-3">
+
+      <!-- LEFT: CONTROL PANEL -->
+      <div class="col-lg-3">
+        <div class="card-shell">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Advanced Controls</div>
+              <div class="card-subtitle-main">Load curated & weather data</div>
+            </div>
+          </div>
+          <div class="card-body-custom">
+
+            <!-- Data sources -->
+            <div class="mb-3">
+              <div class="section-label">Data</div>
+
+              <label class="label-small">Curated soil moisture file</label>
+              <input
+                type="file"
+                id="masterFileInput"
+                class="form-control form-control-sm"
+                accept=".csv,.txt"
+              />
+              <button id="loadMasterBtn" class="btn-main w-100 mt-2">
+                Load master data
+              </button>
+
+              <div class="mt-3">
+                <label class="label-small">Weather / rainfall file</label>
+                <input
+                  type="file"
+                  id="weatherFileInput"
+                  class="form-control form-control-sm"
+                  accept=".csv,.txt"
+                />
+                <button id="loadWeatherBtn" class="btn-soft btn-outline-secondary w-100 mt-2">
+                  Load weather data
+                </button>
+              </div>
+            </div>
+
+            <!-- Time span -->
+            <div class="mb-3">
+              <div class="section-label">Time span</div>
+              <label for="startDate" class="label-small">From</label>
+              <input
+                type="datetime-local"
+                id="startDate"
+                class="form-control form-control-sm"
+              />
+              <label for="endDate" class="label-small mt-2">To</label>
+              <input
+                type="datetime-local"
+                id="endDate"
+                class="form-control form-control-sm"
+              />
+            </div>
+
+            <!-- Sensors -->
+            <div class="mb-3">
+              <div class="section-label">Sensors</div>
+              <label class="label-small">Select one or more sensors</label>
+              <select
+                id="sensorSelect"
+                class="form-select form-select-sm"
+                multiple
+                size="8"
+              ></select>
+              <div class="card-subtitle-main mt-1">
+                Hold Ctrl / Cmd to select multiple.
+              </div>
+            </div>
+
+            <!-- Interval -->
+            <div class="mb-3">
+              <div class="section-label">Aggregation</div>
+              <label for="intervalSelect" class="label-small">Interval</label>
+              <select
+                id="intervalSelect"
+                class="form-select form-select-sm"
+              >
+                <option value="30min">30 min (raw)</option>
+                <option value="hourly">Hourly</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+
+            <!-- Actions -->
+            <div class="d-grid gap-2 mt-2">
+              <button id="plotBtn" class="btn-main">
+                Plot hydrograph
+              </button>
+              <button id="plotRainBtn" class="btn-soft btn-outline-secondary">
+                Plot rainfall events
+              </button>
+              <button id="plotInfilBtn" class="btn-soft btn-outline-secondary">
+                Plot infiltration (first event)
+              </button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT SIDE -->
+      <div class="col-lg-9">
+
+        <!-- DATA PREVIEW -->
+        <div class="card-shell mb-3">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Data Preview</div>
+              <div class="card-subtitle-main">First 100 rows of each dataset</div>
+            </div>
+            <span class="badge-soft">Tables</span>
+          </div>
+          <div class="card-body-custom">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <div class="label-small mb-1">Soil moisture (master)</div>
+                <div id="masterTable" class="table-preview-shell"></div>
+              </div>
+              <div class="col-md-6">
+                <div class="label-small mb-1">Weather / rainfall</div>
+                <div id="weatherTable" class="table-preview-shell"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- HYDROGRAPH -->
+        <div class="card-shell mb-3">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Hydrograph</div>
+              <div class="card-subtitle-main">
+                Soil moisture (vol. frac.) and rainfall for selected sensors
+              </div>
+            </div>
+            <span class="badge-soft">Interactive</span>
+          </div>
+          <div class="card-body-custom">
+            <div class="chart-container">
+              <canvas id="mainChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- RAINFALL EVENTS -->
+        <div class="card-shell mb-3">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Rainfall Events Timeline</div>
+              <div class="card-subtitle-main">
+                Bubble size = duration, color = total rainfall; click an event to update infiltration
+              </div>
+            </div>
+            <span class="badge-soft">Events</span>
+          </div>
+          <div class="card-body-custom">
+            <!-- Legend -->
+            <div class="d-flex align-items-center justify-content-end flex-wrap mb-2" style="gap: 0.75rem;">
+              <!-- Bubble size -->
+              <div class="d-flex align-items-center">
+                <svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="#007bff"/></svg>
+                <small class="ms-1">Short</small>
+              </div>
+              <div class="d-flex align-items-center">
+                <svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="#007bff"/></svg>
+                <small class="ms-1">Medium</small>
+              </div>
+              <div class="d-flex align-items-center">
+                <svg width="24" height="24"><circle cx="12" cy="12" r="12" fill="#007bff"/></svg>
+                <small class="ms-1">Long</small>
+              </div>
+              <!-- Color intensity -->
+              <div class="d-flex align-items-center">
+                <div
+                  style="width:20px; height:10px; background:rgba(0,123,255,0.3); border:1px solid #000;"
+                ></div>
+                <small class="ms-1">Low</small>
+              </div>
+              <div class="d-flex align-items-center">
+                <div
+                  style="width:20px; height:10px; background:rgba(0,123,255,1); border:1px solid #000;"
+                ></div>
+                <small class="ms-1">High</small>
+              </div>
+            </div>
+
+            <div class="chart-container-small">
+              <canvas id="rainEventTimeline"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- INFILTRATION -->
+        <div class="card-shell mb-3">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Infiltration Depth by Sensor & Event</div>
+              <div class="card-subtitle-main">
+                Stacked bars show infiltration at 10, 30, 100 cm for each location
+              </div>
+            </div>
+            <span class="badge-soft">Infiltration</span>
+          </div>
+          <div class="card-body-custom">
+            <!-- TOP ROW: Set 1 / Set 2 / Avg -->
+            <div class="infil-clusters mb-3">
+              <div class="cluster-box">
+                <canvas id="cluster_Set1"></canvas>
+                <div class="cluster-label">Set 1 (Pit 1 &amp; neighbors)</div>
+              </div>
+              <div class="cluster-box">
+                <canvas id="cluster_Set2"></canvas>
+                <div class="cluster-label">Set 2 (Pit 2 &amp; neighbors)</div>
+              </div>
+              <div class="cluster-box">
+                <canvas id="cluster_AvgSets"></canvas>
+                <div class="cluster-label">Average (Set 1 &amp; Set 2)</div>
+              </div>
+            </div>
+
+            <div class="section-label mt-2 mb-1">Replicates</div>
+            <!-- BOTTOM ROW: Replicates + average -->
+            <div class="infil-clusters">
+              <div class="cluster-box small">
+                <canvas id="cluster_Rep1"></canvas>
+                <div class="cluster-label">Replicate 1</div>
+              </div>
+              <div class="cluster-box small">
+                <canvas id="cluster_Rep2"></canvas>
+                <div class="cluster-label">Replicate 2</div>
+              </div>
+              <div class="cluster-box small">
+                <canvas id="cluster_Rep3"></canvas>
+                <div class="cluster-label">Replicate 3</div>
+              </div>
+              <div class="cluster-box small">
+                <canvas id="cluster_AvgReps"></canvas>
+                <div class="cluster-label">Average (Replicates)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OPTIONAL PLACEHOLDER SECTIONS (if you still need them) -->
+        <!--
+        <div class="card-shell mb-3">
+          <div class="card-header-custom">
+            <div>
+              <div class="card-title-main">Evapotranspiration (placeholder)</div>
+              <div class="card-subtitle-main">Reserved for future analysis</div>
+            </div>
+          </div>
+          <div class="card-body-custom">
+            <div class="chart-container">
+              <canvas id="evapotranspirationChart"></canvas>
+            </div>
+          </div>
+        </div>
+        -->
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Sensor Info Modal -->
+  <div class="modal fade" id="sensorInfoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Sensor Configuration</h5>
+          <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="modal"
+          ></button>
+        </div>
+        <div class="modal-body">
+          <table class="table table-striped table-sm">
+            <thead>
+              <tr><th>Friendly Name</th><th>Sensor ID</th></tr>
+            </thead>
+            <tbody id="sensorInfoTable">
+              <!-- Filled by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS + Advanced app (module) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module" src="./src/advancedApp.js"></script>
+</body>
+</html>
